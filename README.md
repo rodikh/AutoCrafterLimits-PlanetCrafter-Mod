@@ -30,11 +30,11 @@ Range uses the game’s own Auto-Crafter range logic (`GetGroupsInRangeForListin
 
 ## Save file
 
-Per-machine settings are stored at:
+Per-machine settings are stored **per game save** in a BepInEx subfolder:
 
-`BepInEx\config\AutoCrafterLimits.json`
+`BepInEx/config/AutoCrafterLimits/{saveFileName}.json`
 
-Entries are removed when the corresponding world object is destroyed.
+Config is loaded when you load a save and saved when the game saves (manual or auto-save). Entries are removed when the corresponding Auto-Crafter is destroyed.
 
 ---
 

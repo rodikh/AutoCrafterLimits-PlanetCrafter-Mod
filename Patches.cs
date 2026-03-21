@@ -61,6 +61,44 @@ namespace AutoCrafterLimits
         }
     }
 
+    [HarmonyPatch(typeof(JSONExport), "LoadFromJson")]
+    internal static class JSONExport_LoadFromJson_Patch
+    {
+        private static void Postfix(bool __result, string _saveFileName)
+        {
+            if (!__result || string.IsNullOrEmpty(_saveFileName))
+            {
+                return;
+            }
+
+            SavedDataHandler handler = Managers.GetManager<SavedDataHandler>();
+            if (handler == null)
+            {
+                return;
+            }
+
+            string current = handler.GetCurrentSaveFileName();
+            if (string.IsNullOrEmpty(current) || current != _saveFileName)
+            {
+                return;
+            }
+
+            ModRuntime.ReloadForSave(_saveFileName);
+        }
+    }
+
+    [HarmonyPatch(typeof(JSONExport), "CreateNewSaveFile")]
+    internal static class JSONExport_CreateNewSaveFile_Patch
+    {
+        private static void Postfix(string saveFileName)
+        {
+            if (!string.IsNullOrEmpty(saveFileName))
+            {
+                ModRuntime.ReloadForSave(saveFileName);
+            }
+        }
+    }
+
     [HarmonyPatch(typeof(WorldObjectsHandler), "DestroyWorldObject", new Type[] { typeof(WorldObject), typeof(bool) })]
     internal static class WorldObjectsHandler_DestroyWorldObject_Patch
     {

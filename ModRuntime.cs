@@ -12,23 +12,35 @@ namespace AutoCrafterLimits
     {
         internal const float ScanRefreshSeconds = 2f;
 
-        internal static ManualLogSource Logger;
         internal static AutoCrafterConfigStore Store;
         internal static AutoCrafterLimitsUi Ui;
 
         internal static readonly Dictionary<int, CachedScan> CachedScans = new Dictionary<int, CachedScan>();
+        internal static readonly Dictionary<string, CachedScan> CachedPlanetWideScansByOutput = new Dictionary<string, CachedScan>(StringComparer.OrdinalIgnoreCase);
         internal static readonly Dictionary<int, string> BlockReasons = new Dictionary<int, string>();
         internal static readonly HashSet<int> KnownInventoryIdsBuffer = new HashSet<int>();
         internal static readonly List<InventoryAssociated> InventoryAssociatedBuffer = new List<InventoryAssociated>();
         internal static readonly List<InventoryAssociatedProxy> InventoryProxyBuffer = new List<InventoryAssociatedProxy>();
 
-        private static string _configPath;
-
         internal static void Initialize(ManualLogSource logger)
         {
-            Logger = logger;
-            _configPath = Path.Combine(Paths.ConfigPath, "AutoCrafterLimits.json");
-            Store = AutoCrafterConfigStore.Load(_configPath, logger);
+            Store = AutoCrafterConfigStore.Create(logger);
+        }
+
+        /// <summary>
+        /// Reload config for the current save file. Call when a save is loaded or a new game is created.
+        /// </summary>
+        internal static void ReloadForSave(string saveFileName)
+        {
+            if (Store == null || string.IsNullOrEmpty(saveFileName))
+            {
+                return;
+            }
+
+            CachedScans.Clear();
+            CachedPlanetWideScansByOutput.Clear();
+            BlockReasons.Clear();
+            Store.ReloadForSave(saveFileName);
         }
 
         internal static bool TryGetAutoCrafterData(MachineAutoCrafter crafter, out int worldObjectId, out Group selectedOutputGroup)
@@ -76,17 +88,16 @@ namespace AutoCrafterLimits
             }
 
             AutoCrafterLimitConfig config = Store.GetOrCreate(worldObjectId);
-            Dictionary<string, int> counts = GetOrRefreshCounts(crafter, worldObjectId);
+            config.ResetIfRecipeChanged(outputGroup.GetId());
+
+            Dictionary<string, int> inRangeCounts = GetOrRefreshCounts(crafter, worldObjectId);
             List<Group> recipeIngredients = outputGroup.GetRecipe().GetIngredientsGroupInRecipe();
-            bool changed = config.AdaptToRecipe(recipeIngredients);
-            if (changed)
-            {
-                Store.Save();
-            }
+            config.AdaptToRecipe(recipeIngredients);
 
             if (config.EnableOutputLimit && config.TargetOutputAmount > 0)
             {
-                int outputCount = GetCount(counts, outputGroup.GetId());
+                Dictionary<string, int> outputCounts = config.OutputLimitCountsPlanetWide ? GetOrRefreshCountsPlanetWide(outputGroup) : inRangeCounts;
+                int outputCount = GetCount(outputCounts, outputGroup.GetId());
                 if (outputCount >= config.TargetOutputAmount)
                 {
                     reason = "Blocked: output limit reached (" + outputCount + "/" + config.TargetOutputAmount + ")";
@@ -97,6 +108,7 @@ namespace AutoCrafterLimits
 
             if (config.EnableInputThreshold)
             {
+                Dictionary<string, int> inputCounts = config.InputThresholdCountsPlanetWide ? GetOrRefreshCountsPlanetWide(outputGroup) : inRangeCounts;
                 for (int i = 0; i < recipeIngredients.Count; i++)
                 {
                     Group ingredient = recipeIngredients[i];
@@ -106,7 +118,7 @@ namespace AutoCrafterLimits
                         continue;
                     }
 
-                    int available = GetCount(counts, ingredient.GetId());
+                    int available = GetCount(inputCounts, ingredient.GetId());
                     if (available < threshold)
                     {
                         reason = "Blocked: input threshold " + ingredient.GetId() + " (" + available + "/" + threshold + ")";
@@ -150,6 +162,11 @@ namespace AutoCrafterLimits
             return GetOrRefreshCounts(crafter, worldObjectId);
         }
 
+        internal static Dictionary<string, int> GetCountsPlanetWide(Group outputGroup)
+        {
+            return GetOrRefreshCountsPlanetWide(outputGroup);
+        }
+
         internal static int GetCountFromSnapshot(Dictionary<string, int> counts, string itemId)
         {
             if (counts == null)
@@ -177,6 +194,94 @@ namespace AutoCrafterLimits
                 Counts = fresh
             };
             return fresh;
+        }
+
+        private static Dictionary<string, int> GetOrRefreshCountsPlanetWide(Group outputGroup)
+        {
+            if (outputGroup == null)
+            {
+                return new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            string outputKey = outputGroup.GetId();
+            if (string.IsNullOrEmpty(outputKey))
+            {
+                return new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            if (CachedPlanetWideScansByOutput.TryGetValue(outputKey, out CachedScan cached)
+                && Time.time - cached.LastScanTime <= ScanRefreshSeconds)
+            {
+                return cached.Counts;
+            }
+
+            Dictionary<string, int> fresh = ScanAndCountPlanetWide(outputGroup);
+            CachedPlanetWideScansByOutput[outputKey] = new CachedScan
+            {
+                LastScanTime = Time.time,
+                Counts = fresh
+            };
+            return fresh;
+        }
+
+        private static bool IsPlayerBuiltInventory(Inventory inventory)
+        {
+            if (inventory == null || WorldObjectsHandler.Instance == null)
+            {
+                return false;
+            }
+
+            WorldObject wo = WorldObjectsHandler.Instance.GetWorldObjectForInventory(inventory);
+            return wo != null;
+        }
+
+        private static Dictionary<string, int> ScanAndCountPlanetWide(Group outputGroup)
+        {
+            Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            if (InventoriesHandler.Instance == null || outputGroup == null)
+            {
+                return counts;
+            }
+
+            Dictionary<int, Inventory> allInventories = InventoriesHandler.Instance.GetAllInventories();
+            if (allInventories == null)
+            {
+                return counts;
+            }
+
+            foreach (Inventory inventory in allInventories.Values)
+            {
+                if (inventory == null)
+                {
+                    continue;
+                }
+
+                if (!IsPlayerBuiltInventory(inventory))
+                {
+                    continue;
+                }
+
+                foreach (WorldObject item in inventory.GetInsideWorldObjects())
+                {
+                    if (item == null || item.GetGroup() == null)
+                    {
+                        continue;
+                    }
+
+                    string itemId = item.GetGroup().GetId();
+                    if (string.IsNullOrEmpty(itemId))
+                    {
+                        continue;
+                    }
+
+                    int current;
+                    counts.TryGetValue(itemId, out current);
+                    counts[itemId] = current + 1;
+                }
+            }
+
+            return counts;
         }
 
         private static Dictionary<string, int> ScanAndCount(MachineAutoCrafter crafter)

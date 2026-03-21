@@ -1,28 +1,25 @@
-using System;
-using System.Collections.Generic;
-
 namespace AutoCrafterLimits
 {
-    [Serializable]
     internal sealed class PersistedStore
     {
-        public List<PersistedCrafterConfig> AutoCrafters = new List<PersistedCrafterConfig>();
+        public PersistedCrafterConfig[] AutoCrafters { get; set; }
     }
 
-    [Serializable]
     internal sealed class PersistedCrafterConfig
     {
-        public int Id;
-        public bool EnableOutputLimit;
-        public int TargetOutputAmount;
-        public bool EnableInputThreshold;
-        public List<PersistedThreshold> InputThresholds = new List<PersistedThreshold>();
+        public int Id { get; set; }
+        public string LastOutputGroupId { get; set; }
+        public bool EnableOutputLimit { get; set; }
+        public bool OutputLimitCountsPlanetWide { get; set; }
+        public int TargetOutputAmount { get; set; }
+        public bool EnableInputThreshold { get; set; }
+        public bool InputThresholdCountsPlanetWide { get; set; }
+        public PersistedThreshold[] InputThresholds { get; set; }
     }
 
-    [Serializable]
     internal sealed class PersistedThreshold
     {
-        public string ItemId;
-        public int Amount;
+        public string ItemId { get; set; }
+        public int Amount { get; set; }
     }
 }

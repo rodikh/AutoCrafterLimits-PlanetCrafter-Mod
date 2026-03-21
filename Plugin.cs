@@ -20,15 +20,16 @@ namespace AutoCrafterLimits
             GameObject uiObject = new GameObject("AutoCrafterLimitsUi");
             DontDestroyOnLoad(uiObject);
             ModRuntime.Ui = uiObject.AddComponent<AutoCrafterLimitsUi>();
+            uiObject.AddComponent<GameSaveListener>();
 
             _harmony = new Harmony(PluginGuid);
             _harmony.PatchAll();
+
             Logger.LogInfo("AutoCrafterLimits initialized.");
         }
 
         private void OnDestroy()
         {
-            ModRuntime.Store.Save();
             if (_harmony != null)
             {
                 _harmony.UnpatchSelf();

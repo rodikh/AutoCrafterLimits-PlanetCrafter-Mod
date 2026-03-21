@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using HarmonyLib;
 using SpaceCraft;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 namespace AutoCrafterLimits
@@ -13,8 +14,11 @@ namespace AutoCrafterLimits
         private readonly Dictionary<string, string> _thresholdInputBuffers = new Dictionary<string, string>();
         private readonly Dictionary<int, UiWidgets> _widgetsByWindowId = new Dictionary<int, UiWidgets>();
 
+        private const float FontScale = 1.5f;
+        private const float IconScale = 2f;
+
         private bool _showConfigWindow;
-        private Rect _windowRect = new Rect(100f, 100f, 560f, 500f);
+        private Rect _windowRect = new Rect(100f, 100f, 840f, 750f);
         private Vector2 _scrollPosition;
         private GUIStyle _blockedMessageStyle;
         private GUIStyle _labelStyle;
@@ -24,11 +28,44 @@ namespace AutoCrafterLimits
         private GUIStyle _textFieldStyle;
         private GUIStyle _windowStyle;
         private GUIStyle _scrollViewStyle;
+        private Texture2D _windowBgTexture;
+        private Texture2D _checkboxOffTexture;
+        private Texture2D _checkboxOnTexture;
         private UiWindowGroupSelector _currentWindow;
         private MachineAutoCrafter _currentCrafter;
 
         private static readonly FieldInfoWrapper<UiWindowGroupSelector, MachineAutoCrafter> AutoCrafterField =
             new FieldInfoWrapper<UiWindowGroupSelector, MachineAutoCrafter>("_autoCrafter");
+
+        private void OnEnable()
+        {
+            SceneManager.sceneLoaded += OnSceneLoaded;
+        }
+
+        private void OnDisable()
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+        }
+
+        private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            InvalidateModalStyles();
+        }
+
+        private void InvalidateModalStyles()
+        {
+            _labelStyle = null;
+            _multiLineLabelStyle = null;
+            _toggleStyle = null;
+            _buttonStyle = null;
+            _textFieldStyle = null;
+            _windowStyle = null;
+            _scrollViewStyle = null;
+            _blockedMessageStyle = null;
+            _windowBgTexture = null;
+            _checkboxOffTexture = null;
+            _checkboxOnTexture = null;
+        }
 
         public void AttachWindow(UiWindowGroupSelector window)
         {
@@ -103,33 +140,60 @@ namespace AutoCrafterLimits
 
             if (!ModRuntime.TryGetAutoCrafterData(_currentCrafter, out int worldObjectId, out Group outputGroup) || outputGroup == null)
             {
-                GUILayout.Space(24f);
+                GUILayout.Space(24f * FontScale);
                 GUILayout.Label("No output recipe selected.", _labelStyle);
-                GUILayout.Space(16f);
+                GUILayout.Space(16f * FontScale);
                 if (GUILayout.Button("Close", _buttonStyle))
                 {
                     _showConfigWindow = false;
                 }
-                GUI.DragWindow(new Rect(0f, 0f, 10000f, 44f));
+                GUI.DragWindow(new Rect(0f, 0f, 10000f, 44f * FontScale));
                 return;
             }
 
             AutoCrafterLimitConfig config = ModRuntime.Store.GetOrCreate(worldObjectId);
-            Dictionary<string, int> countSnapshot = ModRuntime.GetCurrentCounts(_currentCrafter);
-            int outputCurrent = ModRuntime.GetCountFromSnapshot(countSnapshot, outputGroup.GetId());
+            if (config.ResetIfRecipeChanged(outputGroup.GetId()))
+            {
+                _numberInputBuffers.Remove(worldObjectId);
+                ClearThresholdBuffersFor(config.OwnerId);
+            }
 
-            GUILayout.Space(10f);
+            Dictionary<string, int> inRangeSnapshot = ModRuntime.GetCurrentCounts(_currentCrafter);
+            Dictionary<string, int> outputCountSnapshot = config.OutputLimitCountsPlanetWide ? ModRuntime.GetCountsPlanetWide(outputGroup) : inRangeSnapshot;
+            int outputCurrent = ModRuntime.GetCountFromSnapshot(outputCountSnapshot, outputGroup.GetId());
 
-            bool outputEnabled = GUILayout.Toggle(config.EnableOutputLimit, "Enable Output Limit", _toggleStyle);
+            GUILayout.Space(10f * FontScale);
+
+            bool outputEnabled = DrawScaledToggle(config.EnableOutputLimit, "Enable Output Limit");
             if (outputEnabled != config.EnableOutputLimit)
             {
                 config.EnableOutputLimit = outputEnabled;
+                if (!outputEnabled)
+                {
+                    config.TargetOutputAmount = 0;
+                    config.OutputLimitCountsPlanetWide = false;
+                    _numberInputBuffers.Remove(worldObjectId);
+                }
                 ModRuntime.Store.Save();
             }
 
             if (config.EnableOutputLimit)
             {
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(20f * FontScale);
+                GUILayout.BeginVertical();
+                bool planetWide = DrawScaledToggle(config.OutputLimitCountsPlanetWide, "Count in containers planet-wide");
+                if (planetWide != config.OutputLimitCountsPlanetWide)
+                {
+                    config.OutputLimitCountsPlanetWide = planetWide;
+                    ModRuntime.Store.Save();
+                }
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(24f * FontScale);
+                GUILayout.BeginVertical();
                 DrawNumberField(
+                    outputGroup,
                     "Target (0=unlimited) | Current: " + outputCurrent,
                     worldObjectId,
                     config.TargetOutputAmount,
@@ -138,14 +202,24 @@ namespace AutoCrafterLimits
                         config.TargetOutputAmount = Mathf.Max(0, value);
                         ModRuntime.Store.Save();
                     });
+                GUILayout.EndVertical();
+                GUILayout.EndHorizontal();
+                GUILayout.EndVertical();
+                GUILayout.EndHorizontal();
             }
 
-            GUILayout.Space(12f);
+            GUILayout.Space(12f * FontScale);
 
-            bool inputEnabled = GUILayout.Toggle(config.EnableInputThreshold, "Enable Input Thresholds", _toggleStyle);
+            bool inputEnabled = DrawScaledToggle(config.EnableInputThreshold, "Enable Input Thresholds");
             if (inputEnabled != config.EnableInputThreshold)
             {
                 config.EnableInputThreshold = inputEnabled;
+                if (!inputEnabled)
+                {
+                    config.InputThresholds.Clear();
+                    config.InputThresholdCountsPlanetWide = false;
+                    ClearThresholdBuffersFor(config.OwnerId);
+                }
                 ModRuntime.Store.Save();
             }
 
@@ -158,39 +232,69 @@ namespace AutoCrafterLimits
 
             if (config.EnableInputThreshold)
             {
-                GUILayout.Label("Recipe Ingredients (0 = no threshold):", _labelStyle);
-                _scrollPosition = GUILayout.BeginScrollView(_scrollPosition, _scrollViewStyle, GUILayout.Height(220f));
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(20f * FontScale);
+                GUILayout.BeginVertical();
+                bool inputPlanetWide = DrawScaledToggle(config.InputThresholdCountsPlanetWide, "Count in containers planet-wide");
+                if (inputPlanetWide != config.InputThresholdCountsPlanetWide)
+                {
+                    config.InputThresholdCountsPlanetWide = inputPlanetWide;
+                    ModRuntime.Store.Save();
+                }
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(24f * FontScale);
+                GUILayout.BeginVertical();
+                Dictionary<string, int> inputCountSnapshot = config.InputThresholdCountsPlanetWide ? ModRuntime.GetCountsPlanetWide(outputGroup) : inRangeSnapshot;
+                GUILayout.Label("Recipe ingredients (0 = no threshold):", _labelStyle);
+                _scrollPosition = GUILayout.BeginScrollView(_scrollPosition, _scrollViewStyle, GUILayout.Height(220f * FontScale));
                 for (int i = 0; i < ingredients.Count; i++)
                 {
                     Group ingredient = ingredients[i];
-                    int current = ModRuntime.GetCountFromSnapshot(countSnapshot, ingredient.GetId());
+                    int current = ModRuntime.GetCountFromSnapshot(inputCountSnapshot, ingredient.GetId());
                     DrawThresholdField(config, ingredient, current);
                 }
                 GUILayout.EndScrollView();
+                GUILayout.EndVertical();
+                GUILayout.EndHorizontal();
+                GUILayout.EndVertical();
+                GUILayout.EndHorizontal();
             }
 
-            GUILayout.Space(12f);
+            GUILayout.Space(12f * FontScale);
             if (GUILayout.Button("Close", _buttonStyle))
             {
                 _showConfigWindow = false;
             }
 
-            GUI.DragWindow(new Rect(0f, 0f, 10000f, 44f));
+            GUI.DragWindow(new Rect(0f, 0f, 10000f, 44f * FontScale));
         }
 
-        private void DrawNumberField(string label, int key, int currentValue, Action<int> onApply)
+        private static int IconSize => Mathf.RoundToInt(28f * IconScale);
+
+        private static float ControlHeight => 30f * FontScale;
+
+        private void DrawNumberField(Group outputGroup, string label, int key, int currentValue, Action<int> onApply)
         {
-            GUILayout.BeginHorizontal(GUILayout.Height(36f));
-            GUILayout.Label(label, _multiLineLabelStyle, GUILayout.Width(340f), GUILayout.Height(32f));
+            float rowH = 36f * FontScale;
+            GUILayout.BeginHorizontal(GUILayout.Height(rowH));
+
+            GUILayout.BeginVertical(GUILayout.Width(IconSize), GUILayout.Height(rowH));
+            GUILayout.FlexibleSpace();
+            DrawGroupIcon(outputGroup, IconSize);
+            GUILayout.FlexibleSpace();
+            GUILayout.EndVertical();
+
+            GUILayout.Label(label, _multiLineLabelStyle, GUILayout.Width(300f * FontScale), GUILayout.Height(32f * FontScale));
 
             if (!_numberInputBuffers.TryGetValue(key, out string text))
             {
                 text = currentValue.ToString();
             }
-            string updated = GUILayout.TextField(text, _textFieldStyle, GUILayout.Width(90f), GUILayout.Height(30f));
+            string updated = GUILayout.TextField(text, _textFieldStyle, GUILayout.Width(90f * FontScale), GUILayout.Height(ControlHeight));
             _numberInputBuffers[key] = updated;
 
-            if (GUILayout.Button("Set", _buttonStyle, GUILayout.Width(64f), GUILayout.Height(30f)))
+            if (GUILayout.Button("Set", _buttonStyle, GUILayout.Width(64f * FontScale), GUILayout.Height(ControlHeight)))
             {
                 if (int.TryParse(updated, out int parsed))
                 {
@@ -208,30 +312,25 @@ namespace AutoCrafterLimits
             int currentThreshold = config.GetThreshold(ingredientId);
             string displayName = Readable.GetGroupName(ingredient);
 
-            GUILayout.BeginHorizontal(GUILayout.Height(36f));
+            float rowH = 36f * FontScale;
+            GUILayout.BeginHorizontal(GUILayout.Height(rowH));
 
-            Sprite sprite = ingredient.GetImage();
-            if (sprite != null && sprite.texture != null)
-            {
-                Rect iconRect = GUILayoutUtility.GetRect(28f, 28f);
-                Rect texCoords = new Rect(
-                    sprite.rect.x / sprite.texture.width,
-                    sprite.rect.y / sprite.texture.height,
-                    sprite.rect.width / sprite.texture.width,
-                    sprite.rect.height / sprite.texture.height);
-                GUI.DrawTextureWithTexCoords(iconRect, sprite.texture, texCoords);
-            }
+            GUILayout.BeginVertical(GUILayout.Width(IconSize), GUILayout.Height(rowH));
+            GUILayout.FlexibleSpace();
+            DrawGroupIcon(ingredient, IconSize);
+            GUILayout.FlexibleSpace();
+            GUILayout.EndVertical();
 
-            GUILayout.Label(displayName + " (Current: " + currentAmount + ")", _labelStyle, GUILayout.Width(240f), GUILayout.Height(30f));
+            GUILayout.Label(displayName + " (Current: " + currentAmount + ")", _labelStyle, GUILayout.Width(220f * FontScale), GUILayout.Height(ControlHeight));
 
             if (!_thresholdInputBuffers.TryGetValue(fieldKey, out string text))
             {
                 text = currentThreshold.ToString();
             }
-            string updated = GUILayout.TextField(text, _textFieldStyle, GUILayout.Width(80f), GUILayout.Height(30f));
+            string updated = GUILayout.TextField(text, _textFieldStyle, GUILayout.Width(80f * FontScale), GUILayout.Height(ControlHeight));
             _thresholdInputBuffers[fieldKey] = updated;
 
-            if (GUILayout.Button("Set", _buttonStyle, GUILayout.Width(56f), GUILayout.Height(30f)))
+            if (GUILayout.Button("Set", _buttonStyle, GUILayout.Width(56f * FontScale), GUILayout.Height(ControlHeight)))
             {
                 if (int.TryParse(updated, out int parsed))
                 {
@@ -241,6 +340,33 @@ namespace AutoCrafterLimits
                 }
             }
             GUILayout.EndHorizontal();
+        }
+
+        private static void DrawGroupIcon(Group group, int size)
+        {
+            if (group == null)
+            {
+                GUILayout.Space(size);
+                return;
+            }
+
+            Sprite sprite = group.GetImage();
+            if (sprite != null && sprite.texture != null)
+            {
+                Rect iconRect = GUILayoutUtility.GetRect(size, size, GUILayout.Width(size), GUILayout.Height(size));
+                float s = Mathf.Min(iconRect.width, iconRect.height);
+                Rect squareRect = new Rect(iconRect.x + (iconRect.width - s) * 0.5f, iconRect.y + (iconRect.height - s) * 0.5f, s, s);
+                Rect texCoords = new Rect(
+                    sprite.rect.x / sprite.texture.width,
+                    sprite.rect.y / sprite.texture.height,
+                    sprite.rect.width / sprite.texture.width,
+                    sprite.rect.height / sprite.texture.height);
+                GUI.DrawTextureWithTexCoords(squareRect, sprite.texture, texCoords);
+            }
+            else
+            {
+                GUILayout.Space(size);
+            }
         }
 
         private void DrawBlockedMessage()
@@ -256,13 +382,13 @@ namespace AutoCrafterLimits
                 _blockedMessageStyle = new GUIStyle(GUI.skin.label)
                 {
                     alignment = TextAnchor.MiddleRight,
-                    fontSize = 22,
+                    fontSize = Mathf.RoundToInt(22f * FontScale),
                     wordWrap = true
                 };
                 _blockedMessageStyle.normal.textColor = new Color(1f, 0.55f, 0.35f, 1f);
             }
 
-            Rect messageRect = new Rect(Screen.width * 0.5f + 30f, Screen.height * 0.78f, Mathf.Min(700f, Screen.width * 0.5f), 60f);
+            Rect messageRect = new Rect(Screen.width * 0.5f + 30f * FontScale, Screen.height * 0.78f, Mathf.Min(700f * FontScale, Screen.width * 0.5f), 60f * FontScale);
             GUI.Label(messageRect, reason, _blockedMessageStyle);
         }
 
@@ -273,51 +399,188 @@ namespace AutoCrafterLimits
                 return;
             }
 
-            const int fontSize = 18;
+            int fontSize = Mathf.RoundToInt(18f * FontScale);
+
+            var inputFieldBg = new Color(0.22f, 0.25f, 0.32f, 1f);
+            var inputFieldHoverBg = new Color(0.28f, 0.31f, 0.40f, 1f);
+            var setButtonBg = new Color(0.28f, 0.38f, 0.52f, 1f);
+            var setButtonHoverBg = new Color(0.34f, 0.46f, 0.62f, 1f);
 
             _labelStyle = new GUIStyle(GUI.skin.label)
             {
                 fontSize = fontSize,
-                fixedHeight = 32f
+                fixedHeight = 32f * FontScale
             };
+            _labelStyle.normal.textColor = Color.white;
 
             _multiLineLabelStyle = new GUIStyle(GUI.skin.label)
             {
                 fontSize = fontSize,
                 wordWrap = true,
-                fixedHeight = 32f
+                fixedHeight = 32f * FontScale
             };
+            _multiLineLabelStyle.normal.textColor = Color.white;
 
+            float controlHeight = 30f * FontScale;
+            int toggleBoxSize = Mathf.RoundToInt(20f * FontScale);
+            _checkboxOffTexture = MakeCheckboxTexture(toggleBoxSize, false);
+            _checkboxOnTexture = MakeCheckboxTexture(toggleBoxSize, true);
             _toggleStyle = new GUIStyle(GUI.skin.toggle)
             {
                 fontSize = fontSize,
-                fixedHeight = 30f
+                fixedHeight = controlHeight,
+                alignment = TextAnchor.MiddleLeft,
+                padding = new RectOffset(toggleBoxSize + 8, 4, 4, 4),
+                imagePosition = ImagePosition.ImageLeft,
+                border = new RectOffset(0, 0, 0, 0),
+                overflow = new RectOffset(0, 0, 0, 0)
             };
+            var transparent = MakeSolidTexture(1, 1, new Color(0f, 0f, 0f, 0f));
+            _toggleStyle.normal.background = transparent;
+            _toggleStyle.active.background = transparent;
+            _toggleStyle.hover.background = transparent;
+            _toggleStyle.onNormal.background = transparent;
+            _toggleStyle.onActive.background = transparent;
+            _toggleStyle.onHover.background = transparent;
+            _toggleStyle.normal.textColor = Color.white;
+            _toggleStyle.active.textColor = Color.white;
+            _toggleStyle.hover.textColor = Color.white;
+            _toggleStyle.onNormal.textColor = Color.white;
+            _toggleStyle.onActive.textColor = Color.white;
+            _toggleStyle.onHover.textColor = Color.white;
 
+            int pad = Mathf.RoundToInt(6f * FontScale);
             _buttonStyle = new GUIStyle(GUI.skin.button)
             {
                 fontSize = fontSize,
-                fixedHeight = 32f
+                fixedHeight = controlHeight,
+                border = new RectOffset(0, 0, 0, 0),
+                padding = new RectOffset(pad, pad / 2, pad / 2, pad / 2)
             };
+            _buttonStyle.normal.background = MakeSolidTexture(1, 1, setButtonBg);
+            _buttonStyle.normal.textColor = Color.white;
+            _buttonStyle.hover.background = MakeSolidTexture(1, 1, setButtonHoverBg);
 
             _textFieldStyle = new GUIStyle(GUI.skin.textField)
             {
                 fontSize = fontSize,
-                fixedHeight = 30f,
-                padding = new RectOffset(6, 6, 4, 4)
+                fixedHeight = controlHeight,
+                padding = new RectOffset(pad, pad, pad / 2, pad / 2),
+                border = new RectOffset(0, 0, 0, 0),
+                overflow = new RectOffset(0, 0, 0, 0)
             };
+            _textFieldStyle.normal.background = MakeSolidTexture(1, 1, inputFieldBg);
+            _textFieldStyle.normal.textColor = Color.white;
+            _textFieldStyle.hover.background = MakeSolidTexture(1, 1, inputFieldHoverBg);
+            _textFieldStyle.hover.textColor = Color.white;
+            _textFieldStyle.focused.background = MakeSolidTexture(1, 1, inputFieldBg);
+            _textFieldStyle.focused.textColor = Color.white;
+            _textFieldStyle.active.background = MakeSolidTexture(1, 1, inputFieldBg);
+            _textFieldStyle.active.textColor = Color.white;
+
+            _windowBgTexture = MakeSolidTexture(1, 1, new Color(0.09f, 0.10f, 0.14f, 1f));
 
             _windowStyle = new GUIStyle(GUI.skin.window)
             {
-                fontSize = 20,
+                fontSize = Mathf.RoundToInt(20f * FontScale),
                 fontStyle = FontStyle.Bold
             };
-            _windowStyle.padding = new RectOffset(14, 44, 16, 16);
+            _windowStyle.normal.background = _windowBgTexture;
+            _windowStyle.normal.textColor = Color.white;
+            _windowStyle.focused.background = _windowBgTexture;
+            _windowStyle.focused.textColor = Color.white;
+            _windowStyle.active.background = _windowBgTexture;
+            _windowStyle.active.textColor = Color.white;
+            _windowStyle.hover.background = _windowBgTexture;
+            _windowStyle.hover.textColor = Color.white;
+            _windowStyle.onNormal.background = _windowBgTexture;
+            _windowStyle.onNormal.textColor = Color.white;
+            _windowStyle.onFocused.background = _windowBgTexture;
+            _windowStyle.onFocused.textColor = Color.white;
+            _windowStyle.onActive.background = _windowBgTexture;
+            _windowStyle.onActive.textColor = Color.white;
+            _windowStyle.onHover.background = _windowBgTexture;
+            _windowStyle.onHover.textColor = Color.white;
+            int winPad = Mathf.RoundToInt(14f * FontScale);
+            int winTitle = Mathf.RoundToInt(44f * FontScale);
+            _windowStyle.padding = new RectOffset(winPad, winTitle, winPad + 2, winPad);
+            _windowStyle.border = new RectOffset(8, 8, 8, 8);
 
+            int scrollPad = Mathf.RoundToInt(6f * FontScale);
             _scrollViewStyle = new GUIStyle(GUI.skin.scrollView)
             {
-                padding = new RectOffset(6, 6, 6, 6)
+                padding = new RectOffset(scrollPad, scrollPad, scrollPad, scrollPad)
             };
+            _scrollViewStyle.normal.background = MakeSolidTexture(1, 1, new Color(0.06f, 0.07f, 0.10f, 1f));
+        }
+
+        private void ClearThresholdBuffersFor(int ownerId)
+        {
+            string prefix = ownerId + "::";
+            var keysToRemove = new List<string>();
+            foreach (string key in _thresholdInputBuffers.Keys)
+            {
+                if (key.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    keysToRemove.Add(key);
+                }
+            }
+            for (int i = 0; i < keysToRemove.Count; i++)
+            {
+                _thresholdInputBuffers.Remove(keysToRemove[i]);
+            }
+        }
+
+        private bool DrawScaledToggle(bool value, string label)
+        {
+            var content = new GUIContent(label, value ? _checkboxOnTexture : _checkboxOffTexture);
+            if (GUILayout.Button(content, _toggleStyle))
+            {
+                return !value;
+            }
+            return value;
+        }
+
+        private static Texture2D MakeCheckboxTexture(int size, bool filled)
+        {
+            var tex = new Texture2D(size, size);
+            var border = new Color(0.6f, 0.65f, 0.75f, 1f);
+            var fill = new Color(0.35f, 0.5f, 0.7f, 1f);
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    bool edge = x == 0 || x == size - 1 || y == 0 || y == size - 1;
+                    if (edge)
+                    {
+                        tex.SetPixel(x, y, border);
+                    }
+                    else if (filled)
+                    {
+                        tex.SetPixel(x, y, fill);
+                    }
+                    else
+                    {
+                        tex.SetPixel(x, y, new Color(0.15f, 0.16f, 0.2f, 1f));
+                    }
+                }
+            }
+            tex.Apply();
+            return tex;
+        }
+
+        private static Texture2D MakeSolidTexture(int w, int h, Color color)
+        {
+            var tex = new Texture2D(w, h);
+            for (int y = 0; y < h; y++)
+            {
+                for (int x = 0; x < w; x++)
+                {
+                    tex.SetPixel(x, y, color);
+                }
+            }
+            tex.Apply();
+            return tex;
         }
 
         private static List<Group> BuildUniqueIngredientKinds(List<Group> ingredients)
