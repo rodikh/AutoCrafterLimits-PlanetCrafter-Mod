@@ -1,0 +1,16 @@
+# Normalize line endings on checkout (cross-platform)
+* text=auto
+
+# Source & docs
+*.cs     text diff=csharp
+*.csproj text
+*.md     text diff=markdown
+*.json   text
+*.xml    text
+*.config text
+
+# Binary
+*.dll binary
+*.pdb binary
+*.png binary
+*.jpg binary
