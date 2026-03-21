@@ -14,7 +14,8 @@ namespace AutoCrafterLimits
         private readonly Dictionary<int, UiWidgets> _widgetsByWindowId = new Dictionary<int, UiWidgets>();
 
         private bool _showConfigWindow;
-        private Rect _windowRect = new Rect(90f, 120f, 520f, 520f);
+        private Rect _windowRect = new Rect(100f, 100f, 560f, 500f);
+        private Vector2 _scrollPosition;
         private GUIStyle _blockedMessageStyle;
         private GUIStyle _labelStyle;
         private GUIStyle _multiLineLabelStyle;
@@ -22,6 +23,7 @@ namespace AutoCrafterLimits
         private GUIStyle _buttonStyle;
         private GUIStyle _textFieldStyle;
         private GUIStyle _windowStyle;
+        private GUIStyle _scrollViewStyle;
         private UiWindowGroupSelector _currentWindow;
         private MachineAutoCrafter _currentCrafter;
 
@@ -101,15 +103,22 @@ namespace AutoCrafterLimits
 
             if (!ModRuntime.TryGetAutoCrafterData(_currentCrafter, out int worldObjectId, out Group outputGroup) || outputGroup == null)
             {
+                GUILayout.Space(24f);
                 GUILayout.Label("No output recipe selected.", _labelStyle);
-                GUI.DragWindow();
+                GUILayout.Space(16f);
+                if (GUILayout.Button("Close", _buttonStyle))
+                {
+                    _showConfigWindow = false;
+                }
+                GUI.DragWindow(new Rect(0f, 0f, 10000f, 44f));
                 return;
             }
 
             AutoCrafterLimitConfig config = ModRuntime.Store.GetOrCreate(worldObjectId);
             Dictionary<string, int> countSnapshot = ModRuntime.GetCurrentCounts(_currentCrafter);
             int outputCurrent = ModRuntime.GetCountFromSnapshot(countSnapshot, outputGroup.GetId());
-            GUILayout.Space(8f);
+
+            GUILayout.Space(10f);
 
             bool outputEnabled = GUILayout.Toggle(config.EnableOutputLimit, "Enable Output Limit", _toggleStyle);
             if (outputEnabled != config.EnableOutputLimit)
@@ -121,10 +130,10 @@ namespace AutoCrafterLimits
             if (config.EnableOutputLimit)
             {
                 DrawNumberField(
-                    "Target Output Amount (0 = unlimited) | Current: " + outputCurrent,
+                    "Target (0=unlimited) | Current: " + outputCurrent,
                     worldObjectId,
                     config.TargetOutputAmount,
-                    delegate(int value)
+                    value =>
                     {
                         config.TargetOutputAmount = Mathf.Max(0, value);
                         ModRuntime.Store.Save();
@@ -150,12 +159,14 @@ namespace AutoCrafterLimits
             if (config.EnableInputThreshold)
             {
                 GUILayout.Label("Recipe Ingredients (0 = no threshold):", _labelStyle);
+                _scrollPosition = GUILayout.BeginScrollView(_scrollPosition, _scrollViewStyle, GUILayout.Height(220f));
                 for (int i = 0; i < ingredients.Count; i++)
                 {
                     Group ingredient = ingredients[i];
                     int current = ModRuntime.GetCountFromSnapshot(countSnapshot, ingredient.GetId());
                     DrawThresholdField(config, ingredient, current);
                 }
+                GUILayout.EndScrollView();
             }
 
             GUILayout.Space(12f);
@@ -164,24 +175,22 @@ namespace AutoCrafterLimits
                 _showConfigWindow = false;
             }
 
-            GUI.DragWindow(new Rect(0f, 0f, 10000f, 36f));
+            GUI.DragWindow(new Rect(0f, 0f, 10000f, 44f));
         }
 
         private void DrawNumberField(string label, int key, int currentValue, Action<int> onApply)
         {
-            GUILayout.BeginVertical();
-            GUILayout.Label(label, _multiLineLabelStyle, GUILayout.Width(440f));
+            GUILayout.BeginHorizontal(GUILayout.Height(36f));
+            GUILayout.Label(label, _multiLineLabelStyle, GUILayout.Width(340f), GUILayout.Height(32f));
 
-            GUILayout.BeginHorizontal(GUILayout.Height(32f));
             if (!_numberInputBuffers.TryGetValue(key, out string text))
             {
                 text = currentValue.ToString();
             }
-
-            string updated = GUILayout.TextField(text, _textFieldStyle, GUILayout.Width(90f), GUILayout.Height(28f));
+            string updated = GUILayout.TextField(text, _textFieldStyle, GUILayout.Width(90f), GUILayout.Height(30f));
             _numberInputBuffers[key] = updated;
 
-            if (GUILayout.Button("Set", _buttonStyle, GUILayout.Width(60f), GUILayout.Height(28f)))
+            if (GUILayout.Button("Set", _buttonStyle, GUILayout.Width(64f), GUILayout.Height(30f)))
             {
                 if (int.TryParse(updated, out int parsed))
                 {
@@ -189,9 +198,7 @@ namespace AutoCrafterLimits
                     _numberInputBuffers[key] = parsed.ToString();
                 }
             }
-
             GUILayout.EndHorizontal();
-            GUILayout.EndVertical();
         }
 
         private void DrawThresholdField(AutoCrafterLimitConfig config, Group ingredient, int currentAmount)
@@ -199,28 +206,40 @@ namespace AutoCrafterLimits
             string ingredientId = ingredient.GetId();
             string fieldKey = config.OwnerId + "::" + ingredientId;
             int currentThreshold = config.GetThreshold(ingredientId);
+            string displayName = Readable.GetGroupName(ingredient);
 
-            GUILayout.BeginHorizontal(GUILayout.Height(32f));
-            GUILayout.Label(ingredientId + " (Current: " + currentAmount + ")", _labelStyle, GUILayout.Width(320f), GUILayout.Height(28f));
+            GUILayout.BeginHorizontal(GUILayout.Height(36f));
+
+            Sprite sprite = ingredient.GetImage();
+            if (sprite != null && sprite.texture != null)
+            {
+                Rect iconRect = GUILayoutUtility.GetRect(28f, 28f);
+                Rect texCoords = new Rect(
+                    sprite.rect.x / sprite.texture.width,
+                    sprite.rect.y / sprite.texture.height,
+                    sprite.rect.width / sprite.texture.width,
+                    sprite.rect.height / sprite.texture.height);
+                GUI.DrawTextureWithTexCoords(iconRect, sprite.texture, texCoords);
+            }
+
+            GUILayout.Label(displayName + " (Current: " + currentAmount + ")", _labelStyle, GUILayout.Width(240f), GUILayout.Height(30f));
 
             if (!_thresholdInputBuffers.TryGetValue(fieldKey, out string text))
             {
                 text = currentThreshold.ToString();
             }
-
-            string updated = GUILayout.TextField(text, _textFieldStyle, GUILayout.Width(90f), GUILayout.Height(28f));
+            string updated = GUILayout.TextField(text, _textFieldStyle, GUILayout.Width(80f), GUILayout.Height(30f));
             _thresholdInputBuffers[fieldKey] = updated;
 
-            if (GUILayout.Button("Set", _buttonStyle, GUILayout.Width(60f), GUILayout.Height(28f)))
+            if (GUILayout.Button("Set", _buttonStyle, GUILayout.Width(56f), GUILayout.Height(30f)))
             {
                 if (int.TryParse(updated, out int parsed))
                 {
                     config.SetThreshold(ingredientId, Mathf.Max(0, parsed));
-                    _thresholdInputBuffers[fieldKey] = Mathf.Max(0, parsed).ToString();
+                    _thresholdInputBuffers[fieldKey] = config.GetThreshold(ingredientId).ToString();
                     ModRuntime.Store.Save();
                 }
             }
-
             GUILayout.EndHorizontal();
         }
 
@@ -243,17 +262,8 @@ namespace AutoCrafterLimits
                 _blockedMessageStyle.normal.textColor = new Color(1f, 0.55f, 0.35f, 1f);
             }
 
-            Rect messageRect = GetBlockedMessageRect();
+            Rect messageRect = new Rect(Screen.width * 0.5f + 30f, Screen.height * 0.78f, Mathf.Min(700f, Screen.width * 0.5f), 60f);
             GUI.Label(messageRect, reason, _blockedMessageStyle);
-        }
-
-        private Rect GetBlockedMessageRect()
-        {
-            float messageWidth = Mathf.Min(700f, Screen.width * 0.5f);
-            float messageHeight = 60f;
-            float x = Screen.width * 0.5f + 30f;
-            float y = Screen.height * 0.78f;
-            return new Rect(x, y, messageWidth, messageHeight);
         }
 
         private void EnsureModalStyles()
@@ -263,46 +273,51 @@ namespace AutoCrafterLimits
                 return;
             }
 
-            const int fontSize = 16;
+            const int fontSize = 18;
 
             _labelStyle = new GUIStyle(GUI.skin.label)
             {
                 fontSize = fontSize,
-                fixedHeight = 28f
+                fixedHeight = 32f
             };
 
             _multiLineLabelStyle = new GUIStyle(GUI.skin.label)
             {
                 fontSize = fontSize,
-                wordWrap = true
+                wordWrap = true,
+                fixedHeight = 32f
             };
 
             _toggleStyle = new GUIStyle(GUI.skin.toggle)
             {
                 fontSize = fontSize,
-                fixedHeight = 28f
+                fixedHeight = 30f
             };
 
             _buttonStyle = new GUIStyle(GUI.skin.button)
             {
                 fontSize = fontSize,
-                fixedHeight = 28f
+                fixedHeight = 32f
             };
 
             _textFieldStyle = new GUIStyle(GUI.skin.textField)
             {
                 fontSize = fontSize,
-                fixedHeight = 28f,
+                fixedHeight = 30f,
                 padding = new RectOffset(6, 6, 4, 4)
             };
 
             _windowStyle = new GUIStyle(GUI.skin.window)
             {
-                fontSize = fontSize,
+                fontSize = 20,
                 fontStyle = FontStyle.Bold
             };
-            _windowStyle.padding.top += 4;
-            _windowStyle.padding.bottom += 4;
+            _windowStyle.padding = new RectOffset(14, 44, 16, 16);
+
+            _scrollViewStyle = new GUIStyle(GUI.skin.scrollView)
+            {
+                padding = new RectOffset(6, 6, 6, 6)
+            };
         }
 
         private static List<Group> BuildUniqueIngredientKinds(List<Group> ingredients)
@@ -316,17 +331,14 @@ namespace AutoCrafterLimits
                 {
                     continue;
                 }
-
                 string id = ingredient.GetId();
                 if (string.IsNullOrEmpty(id) || seen.Contains(id))
                 {
                     continue;
                 }
-
                 seen.Add(id);
                 unique.Add(ingredient);
             }
-
             return unique;
         }
 
@@ -344,7 +356,7 @@ namespace AutoCrafterLimits
             buttonImage.color = new Color(0.14f, 0.24f, 0.36f, 0.95f);
 
             Button button = buttonGo.GetComponent<Button>();
-            button.onClick.AddListener(delegate
+            button.onClick.AddListener(() =>
             {
                 _currentWindow = window;
                 _currentCrafter = AutoCrafterField.Get(window);
