@@ -10,7 +10,7 @@ Adds per-AutoCrafter output and input constraints for The Planet Crafter.
 - Cached inventory scans (2-second refresh).
 - Per-crafter JSON persistence (keyed by world object id).
 - **IMGUI** limits window (toggle with the **Limits** button).
-- Blocked-crafting reason shown as an on-screen message (near the bottom of the screen when a constraint stops crafting).
+- Blocked-crafting reason shown as a centered orange/red message near the bottom of the screen (~78% height) when a constraint stops crafting.
 
 ## UI usage
 
@@ -44,7 +44,7 @@ Entries are removed when the corresponding world object is destroyed.
 |------|------|
 | **`Plugin.cs`** | BepInEx plugin entry: initializes `ModRuntime`, creates the long-lived UI `GameObject`, applies Harmony (`PatchAll`), saves config on unload. |
 | **`ModRuntime.cs`** | Core runtime: loads config path, **should-craft** evaluation (output + input rules), **cached range/inventory scan** (~2s), block-reason strings for UI, cleanup when a crafter is removed. |
-| **`AutoCrafterLimitsUi.cs`** | UI: adds the **Limits** `uGUI` button, positions it beside the recipe preview image, draws the **IMGUI** settings window (`GUILayout.Window`), and draws the blocked message overlay. |
+| **`AutoCrafterLimitsUi.cs`** | UI: adds the **Limits** `uGUI` button, positions it beside the recipe preview image, draws the **IMGUI** settings window (`GUILayout.Window`), and draws the blocked message overlay near the bottom of the screen. |
 | **`Patches.cs`** | Harmony patches only: `MachineAutoCrafter.CraftIfPossible` (server-side gate), `UiWindowGroupSelector` open/update/close (attach UI), `WorldObjectsHandler.DestroyWorldObject` (drop persisted state). |
 | **`FieldInfoWrapper.cs`** | Small helper to read private `UiWindowGroupSelector._autoCrafter` without hardcoding fragile manual reflection at call sites. |
 | **`AutoCrafterLimitConfig.cs`** | In-memory model for one Auto-Crafter: toggles, target output, per-ingredient thresholds; **adapts** threshold map when the recipe changes. |

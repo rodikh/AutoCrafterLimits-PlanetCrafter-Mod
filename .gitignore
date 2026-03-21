@@ -43,3 +43,10 @@ Desktop.ini
 *.local.*
 .env
 .env.*
+
+# Deploy scripts (local paths)
+deploy.bat
+deploy.ps1
+
+# Cursor AI
+.cursor/

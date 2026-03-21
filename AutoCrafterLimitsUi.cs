@@ -14,10 +14,16 @@ namespace AutoCrafterLimits
         private readonly Dictionary<int, UiWidgets> _widgetsByWindowId = new Dictionary<int, UiWidgets>();
 
         private bool _showConfigWindow;
-        private Rect _windowRect = new Rect(90f, 120f, 420f, 420f);
+        private Rect _windowRect = new Rect(90f, 120f, 520f, 520f);
+        private GUIStyle _blockedMessageStyle;
+        private GUIStyle _labelStyle;
+        private GUIStyle _multiLineLabelStyle;
+        private GUIStyle _toggleStyle;
+        private GUIStyle _buttonStyle;
+        private GUIStyle _textFieldStyle;
+        private GUIStyle _windowStyle;
         private UiWindowGroupSelector _currentWindow;
         private MachineAutoCrafter _currentCrafter;
-        private GUIStyle _blockedMessageStyle;
 
         private static readonly FieldInfoWrapper<UiWindowGroupSelector, MachineAutoCrafter> AutoCrafterField =
             new FieldInfoWrapper<UiWindowGroupSelector, MachineAutoCrafter>("_autoCrafter");
@@ -79,22 +85,23 @@ namespace AutoCrafterLimits
         {
             if (_showConfigWindow && _currentCrafter != null)
             {
-                _windowRect = GUILayout.Window(712345, _windowRect, DrawWindow, "AutoCrafter Limits");
+                EnsureModalStyles();
+                _windowRect = GUILayout.Window(712345, _windowRect, DrawWindow, "AutoCrafter Limits", _windowStyle);
             }
 
-            if (_currentCrafter == null || _currentWindow == null)
+            if (_currentCrafter != null && _currentWindow != null)
             {
-                return;
+                DrawBlockedMessage();
             }
-
-            DrawBlockedMessage();
         }
 
         private void DrawWindow(int windowId)
         {
+            EnsureModalStyles();
+
             if (!ModRuntime.TryGetAutoCrafterData(_currentCrafter, out int worldObjectId, out Group outputGroup) || outputGroup == null)
             {
-                GUILayout.Label("No output recipe selected.");
+                GUILayout.Label("No output recipe selected.", _labelStyle);
                 GUI.DragWindow();
                 return;
             }
@@ -102,9 +109,9 @@ namespace AutoCrafterLimits
             AutoCrafterLimitConfig config = ModRuntime.Store.GetOrCreate(worldObjectId);
             Dictionary<string, int> countSnapshot = ModRuntime.GetCurrentCounts(_currentCrafter);
             int outputCurrent = ModRuntime.GetCountFromSnapshot(countSnapshot, outputGroup.GetId());
-            GUILayout.Space(6f);
+            GUILayout.Space(8f);
 
-            bool outputEnabled = GUILayout.Toggle(config.EnableOutputLimit, "Enable Output Limit");
+            bool outputEnabled = GUILayout.Toggle(config.EnableOutputLimit, "Enable Output Limit", _toggleStyle);
             if (outputEnabled != config.EnableOutputLimit)
             {
                 config.EnableOutputLimit = outputEnabled;
@@ -124,9 +131,9 @@ namespace AutoCrafterLimits
                     });
             }
 
-            GUILayout.Space(10f);
+            GUILayout.Space(12f);
 
-            bool inputEnabled = GUILayout.Toggle(config.EnableInputThreshold, "Enable Input Thresholds");
+            bool inputEnabled = GUILayout.Toggle(config.EnableInputThreshold, "Enable Input Thresholds", _toggleStyle);
             if (inputEnabled != config.EnableInputThreshold)
             {
                 config.EnableInputThreshold = inputEnabled;
@@ -142,7 +149,7 @@ namespace AutoCrafterLimits
 
             if (config.EnableInputThreshold)
             {
-                GUILayout.Label("Recipe Ingredients (0 = no threshold):");
+                GUILayout.Label("Recipe Ingredients (0 = no threshold):", _labelStyle);
                 for (int i = 0; i < ingredients.Count; i++)
                 {
                     Group ingredient = ingredients[i];
@@ -151,29 +158,30 @@ namespace AutoCrafterLimits
                 }
             }
 
-            GUILayout.Space(10f);
-            if (GUILayout.Button("Close"))
+            GUILayout.Space(12f);
+            if (GUILayout.Button("Close", _buttonStyle))
             {
                 _showConfigWindow = false;
             }
 
-            GUI.DragWindow(new Rect(0f, 0f, 10000f, 25f));
+            GUI.DragWindow(new Rect(0f, 0f, 10000f, 36f));
         }
 
         private void DrawNumberField(string label, int key, int currentValue, Action<int> onApply)
         {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(label, GUILayout.Width(220f));
+            GUILayout.BeginVertical();
+            GUILayout.Label(label, _multiLineLabelStyle, GUILayout.Width(440f));
 
+            GUILayout.BeginHorizontal(GUILayout.Height(32f));
             if (!_numberInputBuffers.TryGetValue(key, out string text))
             {
                 text = currentValue.ToString();
             }
 
-            string updated = GUILayout.TextField(text, GUILayout.Width(70f));
+            string updated = GUILayout.TextField(text, _textFieldStyle, GUILayout.Width(90f), GUILayout.Height(28f));
             _numberInputBuffers[key] = updated;
 
-            if (GUILayout.Button("Set", GUILayout.Width(50f)))
+            if (GUILayout.Button("Set", _buttonStyle, GUILayout.Width(60f), GUILayout.Height(28f)))
             {
                 if (int.TryParse(updated, out int parsed))
                 {
@@ -183,6 +191,7 @@ namespace AutoCrafterLimits
             }
 
             GUILayout.EndHorizontal();
+            GUILayout.EndVertical();
         }
 
         private void DrawThresholdField(AutoCrafterLimitConfig config, Group ingredient, int currentAmount)
@@ -191,18 +200,18 @@ namespace AutoCrafterLimits
             string fieldKey = config.OwnerId + "::" + ingredientId;
             int currentThreshold = config.GetThreshold(ingredientId);
 
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(ingredientId + " (Current: " + currentAmount + ")", GUILayout.Width(220f));
+            GUILayout.BeginHorizontal(GUILayout.Height(32f));
+            GUILayout.Label(ingredientId + " (Current: " + currentAmount + ")", _labelStyle, GUILayout.Width(320f), GUILayout.Height(28f));
 
             if (!_thresholdInputBuffers.TryGetValue(fieldKey, out string text))
             {
                 text = currentThreshold.ToString();
             }
 
-            string updated = GUILayout.TextField(text, GUILayout.Width(70f));
+            string updated = GUILayout.TextField(text, _textFieldStyle, GUILayout.Width(90f), GUILayout.Height(28f));
             _thresholdInputBuffers[fieldKey] = updated;
 
-            if (GUILayout.Button("Set", GUILayout.Width(50f)))
+            if (GUILayout.Button("Set", _buttonStyle, GUILayout.Width(60f), GUILayout.Height(28f)))
             {
                 if (int.TryParse(updated, out int parsed))
                 {
@@ -213,6 +222,87 @@ namespace AutoCrafterLimits
             }
 
             GUILayout.EndHorizontal();
+        }
+
+        private void DrawBlockedMessage()
+        {
+            string reason = ModRuntime.GetBlockReason(_currentCrafter);
+            if (string.IsNullOrEmpty(reason))
+            {
+                return;
+            }
+
+            if (_blockedMessageStyle == null)
+            {
+                _blockedMessageStyle = new GUIStyle(GUI.skin.label)
+                {
+                    alignment = TextAnchor.MiddleRight,
+                    fontSize = 22,
+                    wordWrap = true
+                };
+                _blockedMessageStyle.normal.textColor = new Color(1f, 0.55f, 0.35f, 1f);
+            }
+
+            Rect messageRect = GetBlockedMessageRect();
+            GUI.Label(messageRect, reason, _blockedMessageStyle);
+        }
+
+        private Rect GetBlockedMessageRect()
+        {
+            float messageWidth = Mathf.Min(700f, Screen.width * 0.5f);
+            float messageHeight = 60f;
+            float x = Screen.width * 0.5f + 30f;
+            float y = Screen.height * 0.78f;
+            return new Rect(x, y, messageWidth, messageHeight);
+        }
+
+        private void EnsureModalStyles()
+        {
+            if (_labelStyle != null)
+            {
+                return;
+            }
+
+            const int fontSize = 16;
+
+            _labelStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = fontSize,
+                fixedHeight = 28f
+            };
+
+            _multiLineLabelStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = fontSize,
+                wordWrap = true
+            };
+
+            _toggleStyle = new GUIStyle(GUI.skin.toggle)
+            {
+                fontSize = fontSize,
+                fixedHeight = 28f
+            };
+
+            _buttonStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = fontSize,
+                fixedHeight = 28f
+            };
+
+            _textFieldStyle = new GUIStyle(GUI.skin.textField)
+            {
+                fontSize = fontSize,
+                fixedHeight = 28f,
+                padding = new RectOffset(6, 6, 4, 4)
+            };
+
+            _windowStyle = new GUIStyle(GUI.skin.window)
+            {
+                fontSize = fontSize,
+                fontStyle = FontStyle.Bold
+            };
+            _windowStyle.padding.top += 4;
+            _windowStyle.padding.bottom += 4;
         }
 
         private static List<Group> BuildUniqueIngredientKinds(List<Group> ingredients)
@@ -238,31 +328,6 @@ namespace AutoCrafterLimits
             }
 
             return unique;
-        }
-
-        private void DrawBlockedMessage()
-        {
-            string reason = ModRuntime.GetBlockReason(_currentCrafter);
-            if (string.IsNullOrEmpty(reason))
-            {
-                return;
-            }
-
-            if (_blockedMessageStyle == null)
-            {
-                _blockedMessageStyle = new GUIStyle(GUI.skin.label)
-                {
-                    alignment = TextAnchor.MiddleCenter,
-                    fontSize = 16,
-                    wordWrap = true
-                };
-                _blockedMessageStyle.normal.textColor = new Color(1f, 0.55f, 0.35f, 1f);
-            }
-
-            float messageWidth = Mathf.Min(900f, Screen.width * 0.85f);
-            float x = (Screen.width - messageWidth) * 0.5f;
-            float y = Screen.height * 0.78f;
-            GUI.Label(new Rect(x, y, messageWidth, 48f), reason, _blockedMessageStyle);
         }
 
         private UiWidgets CreateWidgets(UiWindowGroupSelector window)
