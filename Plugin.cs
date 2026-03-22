@@ -9,7 +9,7 @@ namespace AutoCrafterLimits
     {
         public const string PluginGuid = "rodik.planetcrafter.autocrafterlimits";
         public const string PluginName = "AutoCrafterLimits";
-        public const string PluginVersion = "1.0.0";
+        public const string PluginVersion = "1.0.1";
 
         private Harmony _harmony;
 

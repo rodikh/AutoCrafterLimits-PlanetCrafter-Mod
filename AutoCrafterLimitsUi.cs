@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using HarmonyLib;
 using SpaceCraft;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
@@ -18,7 +19,7 @@ namespace AutoCrafterLimits
         private const float IconScale = 2f;
 
         private bool _showConfigWindow;
-        private Rect _windowRect = new Rect(100f, 100f, 840f, 750f);
+        private Rect _windowRect = new Rect(100f, 100f, 840f, 400f);
         private Vector2 _scrollPosition;
         private GUIStyle _blockedMessageStyle;
         private GUIStyle _labelStyle;
@@ -33,6 +34,8 @@ namespace AutoCrafterLimits
         private Texture2D _checkboxOnTexture;
         private UiWindowGroupSelector _currentWindow;
         private MachineAutoCrafter _currentCrafter;
+        private GameObject _modalBlocker;
+        private RectTransform _modalBlockerRect;
 
         private static readonly FieldInfoWrapper<UiWindowGroupSelector, MachineAutoCrafter> AutoCrafterField =
             new FieldInfoWrapper<UiWindowGroupSelector, MachineAutoCrafter>("_autoCrafter");
@@ -95,6 +98,7 @@ namespace AutoCrafterLimits
                 _showConfigWindow = false;
                 _currentCrafter = null;
                 _currentWindow = null;
+                SetModalBlockerActive(false);
             }
         }
 
@@ -125,13 +129,81 @@ namespace AutoCrafterLimits
             if (_showConfigWindow && _currentCrafter != null)
             {
                 EnsureModalStyles();
-                _windowRect = GUILayout.Window(712345, _windowRect, DrawWindow, "AutoCrafter Limits", _windowStyle);
+                _windowRect = GUILayout.Window(712345, _windowRect, DrawWindow, "AutoCrafter Limits", _windowStyle,
+                    GUILayout.MinHeight(120f), GUILayout.MaxHeight(Screen.height - 40f));
+                SetModalBlockerActive(true);
+            }
+            else
+            {
+                SetModalBlockerActive(false);
             }
 
             if (_currentCrafter != null && _currentWindow != null)
             {
                 DrawBlockedMessage();
             }
+        }
+
+        private void SetModalBlockerActive(bool active)
+        {
+            if (active && _modalBlocker == null)
+            {
+                _modalBlocker = CreateModalBlocker();
+            }
+            if (_modalBlocker != null)
+            {
+                _modalBlocker.SetActive(active);
+                if (active && _modalBlockerRect != null)
+                {
+                    UpdateModalBlockerRect();
+                }
+            }
+        }
+
+        private void ShrinkWindowForRelayout()
+        {
+            _windowRect.height = Mathf.Min(_windowRect.height, 200f);
+        }
+
+        private void UpdateModalBlockerRect()
+        {
+            if (_modalBlockerRect == null)
+            {
+                return;
+            }
+            float w = Screen.width;
+            float h = Screen.height;
+            Rect r = _windowRect;
+            _modalBlockerRect.anchorMin = new Vector2(r.xMin / w, (h - r.yMax) / h);
+            _modalBlockerRect.anchorMax = new Vector2(r.xMax / w, (h - r.yMin) / h);
+            _modalBlockerRect.offsetMin = Vector2.zero;
+            _modalBlockerRect.offsetMax = Vector2.zero;
+        }
+
+        private GameObject CreateModalBlocker()
+        {
+            GameObject blocker = new GameObject("AutoCrafterLimitsModalBlocker");
+
+            Canvas canvas = blocker.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 32767;
+            blocker.AddComponent<GraphicRaycaster>();
+
+            GameObject panel = new GameObject("Panel", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            panel.transform.SetParent(blocker.transform, false);
+
+            _modalBlockerRect = panel.GetComponent<RectTransform>();
+            _modalBlockerRect.anchorMin = Vector2.zero;
+            _modalBlockerRect.anchorMax = Vector2.one;
+            _modalBlockerRect.offsetMin = Vector2.zero;
+            _modalBlockerRect.offsetMax = Vector2.zero;
+
+            Image image = panel.GetComponent<Image>();
+            image.color = new Color(0f, 0f, 0f, 0.01f);
+            image.raycastTarget = true;
+
+            blocker.transform.SetParent(transform);
+            return blocker;
         }
 
         private void DrawWindow(int windowId)
@@ -164,7 +236,7 @@ namespace AutoCrafterLimits
 
             GUILayout.Space(10f * FontScale);
 
-            bool outputEnabled = DrawScaledToggle(config.EnableOutputLimit, "Enable Output Limit");
+            bool outputEnabled = DrawScaledToggle(config.EnableOutputLimit, "Craft until have X");
             if (outputEnabled != config.EnableOutputLimit)
             {
                 config.EnableOutputLimit = outputEnabled;
@@ -173,8 +245,8 @@ namespace AutoCrafterLimits
                     config.TargetOutputAmount = 0;
                     config.OutputLimitCountsPlanetWide = false;
                     _numberInputBuffers.Remove(worldObjectId);
+                    ShrinkWindowForRelayout();
                 }
-                ModRuntime.Store.Save();
             }
 
             if (config.EnableOutputLimit)
@@ -186,22 +258,22 @@ namespace AutoCrafterLimits
                 if (planetWide != config.OutputLimitCountsPlanetWide)
                 {
                     config.OutputLimitCountsPlanetWide = planetWide;
-                    ModRuntime.Store.Save();
                 }
 
                 GUILayout.BeginHorizontal();
                 GUILayout.Space(24f * FontScale);
                 GUILayout.BeginVertical();
+                string outputItemName = Readable.GetGroupName(outputGroup);
                 DrawNumberField(
                     outputGroup,
-                    "Target (0=unlimited) | Current: " + outputCurrent,
+                    outputItemName + " | In range: " + outputCurrent,
                     worldObjectId,
                     config.TargetOutputAmount,
                     value =>
                     {
                         config.TargetOutputAmount = Mathf.Max(0, value);
-                        ModRuntime.Store.Save();
-                    });
+                    },
+                    inputHint: "(0 = unlimited)");
                 GUILayout.EndVertical();
                 GUILayout.EndHorizontal();
                 GUILayout.EndVertical();
@@ -210,7 +282,7 @@ namespace AutoCrafterLimits
 
             GUILayout.Space(12f * FontScale);
 
-            bool inputEnabled = DrawScaledToggle(config.EnableInputThreshold, "Enable Input Thresholds");
+            bool inputEnabled = DrawScaledToggle(config.EnableInputThreshold, "When ingredients ≥ X");
             if (inputEnabled != config.EnableInputThreshold)
             {
                 config.EnableInputThreshold = inputEnabled;
@@ -219,16 +291,12 @@ namespace AutoCrafterLimits
                     config.InputThresholds.Clear();
                     config.InputThresholdCountsPlanetWide = false;
                     ClearThresholdBuffersFor(config.OwnerId);
+                    ShrinkWindowForRelayout();
                 }
-                ModRuntime.Store.Save();
             }
 
             List<Group> ingredients = BuildUniqueIngredientKinds(outputGroup.GetRecipe().GetIngredientsGroupInRecipe());
-            bool changed = config.AdaptToRecipe(ingredients);
-            if (changed)
-            {
-                ModRuntime.Store.Save();
-            }
+            config.AdaptToRecipe(ingredients);
 
             if (config.EnableInputThreshold)
             {
@@ -239,7 +307,6 @@ namespace AutoCrafterLimits
                 if (inputPlanetWide != config.InputThresholdCountsPlanetWide)
                 {
                     config.InputThresholdCountsPlanetWide = inputPlanetWide;
-                    ModRuntime.Store.Save();
                 }
 
                 GUILayout.BeginHorizontal();
@@ -274,7 +341,7 @@ namespace AutoCrafterLimits
 
         private static float ControlHeight => 30f * FontScale;
 
-        private void DrawNumberField(Group outputGroup, string label, int key, int currentValue, Action<int> onApply)
+        private void DrawNumberField(Group outputGroup, string label, int key, int currentValue, Action<int> onApply, string inputHint = null)
         {
             float rowH = 36f * FontScale;
             GUILayout.BeginHorizontal(GUILayout.Height(rowH));
@@ -286,6 +353,11 @@ namespace AutoCrafterLimits
             GUILayout.EndVertical();
 
             GUILayout.Label(label, _multiLineLabelStyle, GUILayout.Width(300f * FontScale), GUILayout.Height(32f * FontScale));
+
+            if (!string.IsNullOrEmpty(inputHint))
+            {
+                GUILayout.Label(inputHint, _labelStyle, GUILayout.Height(ControlHeight));
+            }
 
             if (!_numberInputBuffers.TryGetValue(key, out string text))
             {
@@ -321,22 +393,23 @@ namespace AutoCrafterLimits
             GUILayout.FlexibleSpace();
             GUILayout.EndVertical();
 
-            GUILayout.Label(displayName + " (Current: " + currentAmount + ")", _labelStyle, GUILayout.Width(220f * FontScale), GUILayout.Height(ControlHeight));
+            GUILayout.Label(displayName + " (In range: " + currentAmount + ")", _multiLineLabelStyle, GUILayout.Width(300f * FontScale), GUILayout.Height(32f * FontScale));
+
+            GUILayout.FlexibleSpace();
 
             if (!_thresholdInputBuffers.TryGetValue(fieldKey, out string text))
             {
                 text = currentThreshold.ToString();
             }
-            string updated = GUILayout.TextField(text, _textFieldStyle, GUILayout.Width(80f * FontScale), GUILayout.Height(ControlHeight));
+            string updated = GUILayout.TextField(text, _textFieldStyle, GUILayout.Width(90f * FontScale), GUILayout.Height(ControlHeight));
             _thresholdInputBuffers[fieldKey] = updated;
 
-            if (GUILayout.Button("Set", _buttonStyle, GUILayout.Width(56f * FontScale), GUILayout.Height(ControlHeight)))
+            if (GUILayout.Button("Set", _buttonStyle, GUILayout.Width(64f * FontScale), GUILayout.Height(ControlHeight)))
             {
                 if (int.TryParse(updated, out int parsed))
                 {
                     config.SetThreshold(ingredientId, Mathf.Max(0, parsed));
                     _thresholdInputBuffers[fieldKey] = config.GetThreshold(ingredientId).ToString();
-                    ModRuntime.Store.Save();
                 }
             }
             GUILayout.EndHorizontal();
@@ -450,16 +523,29 @@ namespace AutoCrafterLimits
             _toggleStyle.onHover.textColor = Color.white;
 
             int pad = Mathf.RoundToInt(6f * FontScale);
+            var setButtonActiveBg = new Color(0.22f, 0.32f, 0.48f, 1f);
             _buttonStyle = new GUIStyle(GUI.skin.button)
             {
                 fontSize = fontSize,
                 fixedHeight = controlHeight,
                 border = new RectOffset(0, 0, 0, 0),
-                padding = new RectOffset(pad, pad / 2, pad / 2, pad / 2)
+                padding = new RectOffset(pad, pad / 2, pad / 2, pad / 2),
+                overflow = new RectOffset(0, 0, 0, 0)
             };
             _buttonStyle.normal.background = MakeSolidTexture(1, 1, setButtonBg);
             _buttonStyle.normal.textColor = Color.white;
             _buttonStyle.hover.background = MakeSolidTexture(1, 1, setButtonHoverBg);
+            _buttonStyle.hover.textColor = Color.white;
+            _buttonStyle.active.background = MakeSolidTexture(1, 1, setButtonActiveBg);
+            _buttonStyle.active.textColor = Color.white;
+            _buttonStyle.focused.background = MakeSolidTexture(1, 1, setButtonBg);
+            _buttonStyle.focused.textColor = Color.white;
+            _buttonStyle.onNormal.background = MakeSolidTexture(1, 1, setButtonBg);
+            _buttonStyle.onNormal.textColor = Color.white;
+            _buttonStyle.onHover.background = MakeSolidTexture(1, 1, setButtonHoverBg);
+            _buttonStyle.onHover.textColor = Color.white;
+            _buttonStyle.onActive.background = MakeSolidTexture(1, 1, setButtonActiveBg);
+            _buttonStyle.onActive.textColor = Color.white;
 
             _textFieldStyle = new GUIStyle(GUI.skin.textField)
             {
@@ -661,23 +747,29 @@ namespace AutoCrafterLimits
                 return;
             }
 
-            Vector3[] corners = new Vector3[4];
-            imageRect.GetWorldCorners(corners);
-            for (int i = 0; i < corners.Length; i++)
-            {
-                corners[i] = parentRect.InverseTransformPoint(corners[i]);
-            }
+            const float gap = 8f;
+            const float buttonWidth = 120f;
+            const float buttonHeight = 30f;
 
-            float imageRight = Mathf.Max(corners[2].x, corners[3].x);
-            float imageTop = Mathf.Max(corners[1].y, corners[2].y);
+            Vector3[] imageCorners = new Vector3[4];
+            imageRect.GetWorldCorners(imageCorners);
+            for (int i = 0; i < imageCorners.Length; i++)
+            {
+                imageCorners[i] = parentRect.InverseTransformPoint(imageCorners[i]);
+            }
+            float imageLeft = Mathf.Min(imageCorners[0].x, imageCorners[1].x);   // 0=BL, 1=TL
+            float imageTop = Mathf.Max(imageCorners[1].y, imageCorners[2].y);   // 1=TL, 2=TR
 
             buttonRect.anchorMin = new Vector2(0f, 1f);
             buttonRect.anchorMax = new Vector2(0f, 1f);
-            buttonRect.pivot = new Vector2(0f, 1f);
-            buttonRect.sizeDelta = new Vector2(120f, 30f);
-            float anchorX = imageRight - parentRect.rect.xMin + 8f;
-            float anchorY = imageTop - parentRect.rect.yMax + 2f;
-            buttonRect.anchoredPosition = new Vector2(anchorX, anchorY);
+            buttonRect.pivot = new Vector2(1f, 1f);
+            buttonRect.sizeDelta = new Vector2(buttonWidth, buttonHeight);
+
+            float anchorRefX = parentRect.rect.xMin;
+            float anchorRefY = parentRect.rect.yMax;
+            float buttonRightX = imageLeft - gap;
+            float buttonTopY = imageTop;
+            buttonRect.anchoredPosition = new Vector2(buttonRightX - anchorRefX, buttonTopY - anchorRefY);
         }
 
         private sealed class UiWidgets

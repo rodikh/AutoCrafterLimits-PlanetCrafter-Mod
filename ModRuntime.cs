@@ -393,7 +393,6 @@ namespace AutoCrafterLimits
 
             CachedScans.Remove(worldObjectId);
             BlockReasons.Remove(worldObjectId);
-            Store.Save();
         }
 
         internal sealed class CachedScan

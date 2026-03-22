@@ -5,6 +5,7 @@
 [Ll]ogs/
 out/
 publish/
+dist/
 
 # NuGet
 *.nupkg
