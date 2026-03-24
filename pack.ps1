@@ -52,13 +52,9 @@ if (Test-Path $StagingDir) {
 }
 New-Item -ItemType Directory -Path $StagingDir -Force | Out-Null
 
-# BepInEx structure (extract-to-game-root friendly)
-$PluginsDir = Join-Path $StagingDir "BepInEx\plugins"
-New-Item -ItemType Directory -Path $PluginsDir -Force | Out-Null
-
-# Copy DLL
-Copy-Item -Path $DllPath -Destination $PluginsDir -Force
-Write-Host "Packaging: BepInEx/plugins/AutoCrafterLimits.dll" -ForegroundColor Gray
+# Copy DLL at root (Vortex installs to BepInEx/plugins automatically)
+Copy-Item -Path $DllPath -Destination $StagingDir -Force
+Write-Host "Packaging: AutoCrafterLimits.dll" -ForegroundColor Gray
 
 # Create zip
 New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
@@ -80,6 +76,4 @@ Write-Host ""
 Write-Host "Pack complete." -ForegroundColor Green
 Write-Host "Output: $ZipPath" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Install: Extract the zip into your game folder" -ForegroundColor Gray
-Write-Host "  (e.g. C:\Program Files (x86)\Steam\steamapps\common\The Planet Crafter)" -ForegroundColor Gray
-Write-Host "  BepInEx must be installed. The DLL goes to BepInEx/plugins/." -ForegroundColor Gray
+Write-Host "Install: Vortex or extract to game folder. BepInEx required." -ForegroundColor Gray

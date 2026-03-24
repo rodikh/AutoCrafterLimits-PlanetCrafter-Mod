@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using BepInEx;
 using BepInEx.Logging;
 using SpaceCraft;
+using Unity.Netcode;
 using UnityEngine;
 
 namespace AutoCrafterLimits
@@ -21,6 +21,7 @@ namespace AutoCrafterLimits
         internal static readonly HashSet<int> KnownInventoryIdsBuffer = new HashSet<int>();
         internal static readonly List<InventoryAssociated> InventoryAssociatedBuffer = new List<InventoryAssociated>();
         internal static readonly List<InventoryAssociatedProxy> InventoryProxyBuffer = new List<InventoryAssociatedProxy>();
+        private static readonly List<ValueTuple<GameObject, Group>> RangeListingBuffer = new List<ValueTuple<GameObject, Group>>();
 
         internal static void Initialize(ManualLogSource logger)
         {
@@ -299,11 +300,17 @@ namespace AutoCrafterLimits
                 }
             }
 
-            List<ValueTuple<GameObject, Group>> inRange = crafter.GetGroupsInRangeForListing();
-            for (int i = 0; i < inRange.Count; i++)
+            RangeListingBuffer.Clear();
+            MachineGetInRange machineGetInRange = crafter.GetComponent<MachineGetInRange>();
+            if (machineGetInRange != null)
             {
-                GameObject go = inRange[i].Item1;
-                Group group = inRange[i].Item2;
+                machineGetInRange.GetGroupsInRange(crafter.GetRange(), (go, group) => AddAutoCrafterRangeListingEntry(RangeListingBuffer, go, group));
+            }
+
+            for (int i = 0; i < RangeListingBuffer.Count; i++)
+            {
+                GameObject go = RangeListingBuffer[i].Item1;
+                Group group = RangeListingBuffer[i].Item2;
                 if (go == null || group == null)
                 {
                     continue;
@@ -345,6 +352,39 @@ namespace AutoCrafterLimits
             }
 
             return counts;
+        }
+
+        /// <summary>
+        /// Matches which entries MachineAutoCrafter puts in its range listing, without touching static fields
+        /// shared with CraftIfPossible (calling GetGroupsInRangeForListing corrupts those).
+        /// </summary>
+        private static void AddAutoCrafterRangeListingEntry(List<ValueTuple<GameObject, Group>> buffer, GameObject go, Group group)
+        {
+            if (go == null || group == null || buffer == null)
+            {
+                return;
+            }
+
+            if (group is GroupItem)
+            {
+                if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer)
+                {
+                    WorldObjectAssociated componentInChildren = go.GetComponentInChildren<WorldObjectAssociated>(true);
+                    if (componentInChildren == null || (componentInChildren.GetWorldObject().GetGrowth() > 0f && componentInChildren.GetWorldObject().GetGrowth() < 100f))
+                    {
+                        return;
+                    }
+                }
+
+                buffer.Add(new ValueTuple<GameObject, Group>(go, group));
+                return;
+            }
+
+            if (group.GetLogisticInterplanetaryType() != DataConfig.LogisticInterplanetaryType.Disabled
+                && (go.GetComponentInChildren<InventoryAssociated>(true) != null || go.GetComponentInChildren<InventoryAssociatedProxy>(true) != null))
+            {
+                buffer.Add(new ValueTuple<GameObject, Group>(go, group));
+            }
         }
 
         private static void CollectInventoryIdsFrom(GameObject go)

@@ -7,9 +7,9 @@ namespace AutoCrafterLimits
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     public class Plugin : BaseUnityPlugin
     {
-        public const string PluginGuid = "rodik.planetcrafter.autocrafterlimits";
+        public const string PluginGuid = "rodikh.planetcrafter.autocrafterlimits";
         public const string PluginName = "AutoCrafterLimits";
-        public const string PluginVersion = "1.0.1";
+        public const string PluginVersion = "1.0.2";
 
         private Harmony _harmony;
 
