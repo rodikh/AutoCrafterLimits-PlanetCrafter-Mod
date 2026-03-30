@@ -45,6 +45,24 @@ namespace AutoCrafterLimits
             InputThresholds[itemId] = Mathf.Max(0, value);
         }
 
+        /// <summary>Sets all thresholds that are currently 0 to <paramref name="defaultValue"/>. Used when enabling input thresholds so already-known ingredients receive the configured default.</summary>
+        public void ApplyDefaultThreshold(int defaultValue)
+        {
+            if (defaultValue <= 0)
+            {
+                return;
+            }
+
+            List<string> keys = new List<string>(InputThresholds.Keys);
+            for (int i = 0; i < keys.Count; i++)
+            {
+                if (InputThresholds[keys[i]] == 0)
+                {
+                    InputThresholds[keys[i]] = defaultValue;
+                }
+            }
+        }
+
         public bool AdaptToRecipe(List<Group> ingredients)
         {
             bool changed = false;

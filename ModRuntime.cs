@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using BepInEx;
+using BepInEx.Configuration;
 using BepInEx.Logging;
 using SpaceCraft;
 using Unity.Netcode;
@@ -15,6 +16,11 @@ namespace AutoCrafterLimits
         internal static AutoCrafterConfigStore Store;
         internal static AutoCrafterLimitsUi Ui;
 
+        private static ConfigEntry<int> _defaultOutputLimitEntry;
+        private static ConfigEntry<int> _defaultInputThresholdEntry;
+        internal static int DefaultOutputLimitWhenEnabled => Mathf.Max(0, _defaultOutputLimitEntry?.Value ?? 0);
+        internal static int DefaultInputThresholdWhenEnabled => Mathf.Max(0, _defaultInputThresholdEntry?.Value ?? 0);
+
         internal static readonly Dictionary<int, CachedScan> CachedScans = new Dictionary<int, CachedScan>();
         internal static readonly Dictionary<string, CachedScan> CachedPlanetWideScansByOutput = new Dictionary<string, CachedScan>(StringComparer.OrdinalIgnoreCase);
         internal static readonly Dictionary<int, string> BlockReasons = new Dictionary<int, string>();
@@ -23,9 +29,11 @@ namespace AutoCrafterLimits
         internal static readonly List<InventoryAssociatedProxy> InventoryProxyBuffer = new List<InventoryAssociatedProxy>();
         private static readonly List<ValueTuple<GameObject, Group>> RangeListingBuffer = new List<ValueTuple<GameObject, Group>>();
 
-        internal static void Initialize(ManualLogSource logger)
+        internal static void Initialize(ManualLogSource logger, ConfigEntry<int> defaultOutputLimit, ConfigEntry<int> defaultInputThreshold)
         {
             Store = AutoCrafterConfigStore.Create(logger);
+            _defaultOutputLimitEntry = defaultOutputLimit;
+            _defaultInputThresholdEntry = defaultInputThreshold;
         }
 
         /// <summary>

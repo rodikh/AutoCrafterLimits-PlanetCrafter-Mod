@@ -240,7 +240,14 @@ namespace AutoCrafterLimits
             if (outputEnabled != config.EnableOutputLimit)
             {
                 config.EnableOutputLimit = outputEnabled;
-                if (!outputEnabled)
+                if (outputEnabled)
+                {
+                    if (config.TargetOutputAmount <= 0)
+                    {
+                        config.TargetOutputAmount = ModRuntime.DefaultOutputLimitWhenEnabled;
+                    }
+                }
+                else
                 {
                     config.TargetOutputAmount = 0;
                     config.OutputLimitCountsPlanetWide = false;
@@ -282,11 +289,16 @@ namespace AutoCrafterLimits
 
             GUILayout.Space(12f * FontScale);
 
+            List<Group> ingredients = BuildUniqueIngredientKinds(outputGroup.GetRecipe().GetIngredientsGroupInRecipe());
             bool inputEnabled = DrawScaledToggle(config.EnableInputThreshold, "When ingredients ≥ X");
             if (inputEnabled != config.EnableInputThreshold)
             {
                 config.EnableInputThreshold = inputEnabled;
-                if (!inputEnabled)
+                if (inputEnabled)
+                {
+                    config.ApplyDefaultThreshold(ModRuntime.DefaultInputThresholdWhenEnabled);
+                }
+                else
                 {
                     config.InputThresholds.Clear();
                     config.InputThresholdCountsPlanetWide = false;
@@ -295,7 +307,6 @@ namespace AutoCrafterLimits
                 }
             }
 
-            List<Group> ingredients = BuildUniqueIngredientKinds(outputGroup.GetRecipe().GetIngredientsGroupInRecipe());
             config.AdaptToRecipe(ingredients);
 
             if (config.EnableInputThreshold)

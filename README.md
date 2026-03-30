@@ -8,6 +8,7 @@ Adds per-AutoCrafter output and input constraints for The Planet Crafter.
 - **Input thresholds** per ingredient: only craft when each enabled threshold is met.
 - **Planet-wide counting**: optional toggle for both output and input to count across all player-built containers on the planet (default: in-range only).
 - **Hybrid behavior** (`Output && Input`): all enabled constraints must pass.
+- **Sensible defaults**: enabling a limit for the first time pre-fills it with a configurable value (default: 30) instead of 0.
 - Cached inventory scans (2-second refresh).
 - Per-crafter JSON persistence (keyed by world object id).
 - **IMGUI** limits window (toggle with the **Limits** button).
@@ -24,9 +25,9 @@ Adds per-AutoCrafter output and input constraints for The Planet Crafter.
 1. Open an Auto-Crafter.
 2. Click **Limits** (placed next to the selected recipe image in the panel).
 3. Configure:
-   - **Craft until have X**: Enable output limit + target amount (`0` = unlimited).
+   - **Craft until have X**: Enable output limit + target amount (`0` = unlimited). Enabling for the first time pre-fills the target with the configured default (30).
    - **Count in containers planet-wide**: Optional. When enabled, output limit counts across all player-built containers; when disabled, only containers in Auto-Crafter range.
-   - **When ingredients ≥ X**: Enable input thresholds + per-ingredient values (`0` = no threshold for that ingredient).
+   - **When ingredients ≥ X**: Enable input thresholds + per-ingredient values (`0` = no threshold for that ingredient). Enabling for the first time pre-fills every ingredient with the configured default (30).
    - **Count in containers planet-wide**: Same option for input thresholds.
 4. Duplicate ingredients in a recipe (e.g. two of the same ore) are shown as **one row per resource kind**.
 
@@ -35,6 +36,17 @@ Adds per-AutoCrafter output and input constraints for The Planet Crafter.
 - **In range (default):** Inventories/containers in Auto-Crafter range plus the Auto-Crafter's own inventory. Range uses the game's `GetGroupsInRangeForListing()`, so modded range changes are respected.
 - **Planet-wide (optional):** All player-built containers on the planet.
 - **Excluded:** Dropped world items (not in an inventory).
+
+## Configuration
+
+`BepInEx/config/rodikh.planetcrafter.autocrafterlimits.cfg` is created on first run.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `Defaults.DefaultOutputLimitWhenEnabled` | `30` | Target output amount pre-filled when enabling the output limit for the first time on a crafter (`0` = start unlimited). |
+| `Defaults.DefaultInputThresholdWhenEnabled` | `30` | Per-ingredient threshold pre-filled when enabling input thresholds for the first time on a crafter (`0` = start with no threshold). |
+
+Changes to these values take effect immediately — no game restart required.
 
 ## Save file
 
